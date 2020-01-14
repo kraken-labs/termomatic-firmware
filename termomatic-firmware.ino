@@ -1,14 +1,17 @@
 #include "RF24.h"
 #include "RF24Network.h"
 #include "RF24Mesh.h"
-#define CE_PIN PB1
-#define CSN_PIN PB2 // PB0
+
+// Atmega328p
+#define CE_PIN 7 //PD7
+#define CSN_PIN 8 // PB0
+
 #define RF_CHANNEL 40
 
 #include "Wire.h"
 
 #define DEVICE_TYPE_CASAMATIC 1
-#define THIS_DEVICE_TYPE 3 // Termomatic
+#define THIS_DEVICE_TYPE 4 // Termomatic
 
 #define CASAMATIC_EVENT_DEVICE_ADDED 1
 
@@ -17,13 +20,17 @@
 #define EVENT_SET_TEMP 2 // New Set Temp
 #define EVENT_SET_MODE 3 // Set mode
 
-#define DS18B20_PIN 2 // PIN_B2
+#define DS18B20_PIN 4
+#include <OneWire.h> // sensor temperatura
+#include <DallasTemperature.h> // sensor temperatura
+OneWire oneWireObjeto(DS18B20_PIN);
+DallasTemperature sensorDS18B20(&oneWireObjeto);
 
 #include "PinChangeInterrupt.h"
 
-#define PIN_PULSADOR_A PIN_A2
-#define PIN_PULSADOR_B PIN_A1
-#define PIN_PULSADOR_C PIN_A0
+#define PIN_PULSADOR_A A0 // PIN_A2
+#define PIN_PULSADOR_B A1 // PIN_A1
+#define PIN_PULSADOR_C A2 // PIN_A0
 
 const byte pulsadores[] = { PIN_PULSADOR_A, PIN_PULSADOR_B, PIN_PULSADOR_C };
 
@@ -34,7 +41,7 @@ const byte pulsadores[] = { PIN_PULSADOR_A, PIN_PULSADOR_B, PIN_PULSADOR_C };
 #define DETECT_LONG_MS 2000
 #define DETECT_DOUBLE_MS 400
 
-#define DEBUG 1
+//#define DEBUG 1
 
 struct event_t {
   char from[5];
@@ -64,30 +71,27 @@ byte CURRENT_STATE = STATE_BOOT;
 
 byte CURRENT_MODE = MODE_HEAT;
 
-/*
 void setPulsador(byte i) {
   if (pressState[i] == PRESS_STATE_IDLE) {
-    if (((PINA >> pulsadores[i])& 1) == 1) {
+    // if (((PINA >> pulsadores[i])& 1) == 1) {
+    if (digitalRead(pulsadores[i]) == HIGH) {
       pressState[i] = PRESS_STATE_STARTED;
       initPressMillis[i] = millis();
     }
   }
 }
-*/
 
-/*
 void setPulsadorA(void) { setPulsador(0); }
 void setPulsadorB(void) { setPulsador(1); }
 void setPulsadorC(void) { setPulsador(2); }
-*/
 
 #include <EEPROM.h>
 #include "EEPROMAnything.h"
 #define EEPROM_ADDR_STATE 0
 #define EEPROM_ADDR_MAC 1
 #define EEPROM_ADDR_TEMP_SET 10
-//char mac[5] = { 0 };
-char mac[5] = { 'f', 'f', 'f', 'f', 0 };
+char mac[5] = { 0 };
+//char mac[5] = { 'f', 'f', 'f', 'f', 0 };
 volatile byte tempSet = 0;
 
 uint32_t publishTimer = 0;
@@ -101,7 +105,7 @@ void storeCounter() {
 }
 
 void publishMsg(byte event_type, int data) {
-  char to[5] = { 'f', 'f', 'f', 'f', 0 };
+  char to[5] = { 'c', 'c', 'c', '0', 0 };
   event_t rf_event;
   rf_event.device_type = THIS_DEVICE_TYPE;
   rf_event.event_type = event_type;
@@ -154,6 +158,11 @@ uint32_t currentTemperature = 0;
 void loadConfig() {
   byte state = EEPROM.read(EEPROM_ADDR_STATE);
   EEPROM_readAnything(EEPROM_ADDR_MAC, mac);
+  mac[0] = 'a';
+  mac[1] = 'b';
+  mac[2] = '1';
+  mac[3] = '2';
+  mac[4] = 0;
   
   switch (state) {
     case STATE_ACTIVE:
@@ -171,9 +180,6 @@ void showDigits(byte value) {
 }
 
 void setup() {
-  pinMode(CE_PIN, OUTPUT);
-  pinMode(CSN_PIN, OUTPUT);
-
   pinMode(PIN_PULSADOR_A, INPUT);
   pinMode(PIN_PULSADOR_B, INPUT);
   pinMode(PIN_PULSADOR_C, INPUT);
@@ -183,39 +189,34 @@ void setup() {
   //char m[5] = {'a', 'b', '1', '2', 0};
   //EEPROM_writeAnything(EEPROM_ADDR_MAC, m);
   
-  //loadConfig();
+  loadConfig();
 
   Wire.begin();
   
-  //onewire_init(DS18B20_PIN);
+  sensorDS18B20.begin();
 
   delay(100);
   showDigits(88);
 
-  /*
   attachPCINT(digitalPinToPCINT(PIN_PULSADOR_A), setPulsadorA, RISING);
   attachPCINT(digitalPinToPCINT(PIN_PULSADOR_B), setPulsadorB, RISING);
   attachPCINT(digitalPinToPCINT(PIN_PULSADOR_C), setPulsadorC, RISING);
-  */
 
-  //CURRENT_STATE = STATE_LINK;
+  #ifdef DEBUG
+  showDigits((byte) sensorDS18B20.getDeviceCount());
+  delay(1000);
+  #endif
 
-  //if ((CURRENT_STATE == STATE_ACTIVE) || (CURRENT_STATE == STATE_LINK)) {
-    //tempSet = EEPROM.read(EEPROM_ADDR_TEMP_SET);
+  if ((CURRENT_STATE == STATE_ACTIVE) || (CURRENT_STATE == STATE_LINK)) {
+    tempSet = EEPROM.read(EEPROM_ADDR_TEMP_SET);
     //radio.setPALevel(RF24_PA_MAX);
     mesh.begin(RF_CHANNEL, RF24_250KBPS, 1000);
-  //}
-
-  showDigits(75);
+  }
 }
 
 void loop() {
   mesh.update();
-  
-  publishMsg(EVENT_CURRENT_TEMP, (uint16_t) 15);
-  delay(1000);
 
-  /*
   if (CURRENT_STATE == STATE_LINK) {
     while (network.available()) {
       RF24NetworkHeader header;
@@ -250,7 +251,8 @@ void loop() {
       if (pressState[i] == PRESS_STATE_STARTED) {
         diffMillis[i] = currentMillis - initPressMillis[i];
     
-        if (((PINA >> pulsadores[i])& 1) == 0) {
+        //if (((PINA >> pulsadores[i])& 1) == 0) {
+        if (digitalRead(pulsadores[i]) == HIGH) {
           //if ((initPressMillis[i] - prevPressMillis[i]) < DETECT_DOUBLE_MS) {
           //  prevPressMillis[i] = 0;
           //  initPressMillis[i] = 0;
@@ -308,21 +310,12 @@ void loop() {
       publishTimer = currentMillis;
 
       uint16_t t;
-      onewire_reset(); // 1-Wire reset
-      onewire_write(ONEWIRE_SKIP_ROM); // to all devices on the bus
-      onewire_write(0x44); // send DS18B20 command, "CONVERT T"
+      sensorDS18B20.requestTemperatures();
+      t = sensorDS18B20.getTempCByIndex(0);
 
-      onewire_reset(); // 1-Wire reset
-      onewire_write(ONEWIRE_SKIP_ROM); // to all devices on the bus
-      onewire_write(0xBE); // send DS18B20 command, "READ SCRATCHPAD"
-
-      t = onewire_read(); // read temperature low byte
-      t |= (uint16_t)onewire_read() << 8; // and high byte
-      t = ((t >> 4) * 100 + ((t << 12) / 6553) * 10) / 100; // decode temp
-  
       showDigits((byte) t);
   
       publishMsg(EVENT_CURRENT_TEMP, (uint16_t) t);
     }
-  }*/
+  }
 }
